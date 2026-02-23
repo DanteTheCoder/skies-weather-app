@@ -9,6 +9,7 @@ export default function WeatherCard({
   isTransitioning,
   allDays,
   activeDay,
+  onDaySelect,
 }) {
   const meta = WEATHER_META[getWeatherType(day.weatherCode)];
   const nextMeta = WEATHER_META[getWeatherType(nextDay?.weatherCode)];
@@ -127,7 +128,7 @@ export default function WeatherCard({
             <div
               key={i}
               className={`forecast-day ${i === activeDay ? "forecast-day--active" : ""}`}
-              onClick={() => window.scrollTo({ top: i * window.innerHeight, behavior: "smooth" })}
+              onClick={() => onDaySelect?.(i)}
             >
               <span className="forecast-day-name">{d.dayName.slice(0, 3)}</span>
               <span className="forecast-icon">{m?.icon}</span>

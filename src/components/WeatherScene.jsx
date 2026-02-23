@@ -72,6 +72,36 @@ export default function WeatherScene({
     return () => cancelAnimationFrame(idleAnimRef.current);
   }, [hasFrames, isTransitioning, currentType]);
 
+  // Resize canvas to full device pixel ratio — call before every draw
+  const resizeCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return false;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.offsetWidth * dpr;
+    const h = canvas.offsetHeight * dpr;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    return true;
+  }, []);
+
+  // Draw image cover-fitted (like CSS object-fit: cover) — no stretch, no blur
+  const drawImageCover = useCallback((ctx, img) => {
+    const cw = ctx.canvas.width;
+    const ch = ctx.canvas.height;
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    if (!iw || !ih) return;
+    const scale = Math.max(cw / iw, ch / ih);
+    const sw = iw * scale;
+    const sh = ih * scale;
+    const sx = (cw - sw) / 2;
+    const sy = (ch - sh) / 2;
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.drawImage(img, sx, sy, sw, sh);
+  }, []);
+
   // Draw the right frame to canvas
   const drawFrame = useCallback((folderName, frameIndex) => {
     const canvas = canvasRef.current;
@@ -79,14 +109,17 @@ export default function WeatherScene({
     const url = getFrameUrl(folderName, frameIndex);
     if (!url) return;
     const ctx = canvas.getContext("2d");
+    resizeCanvas();
+    // Use a new Image() but let the browser serve from its own HTTP cache
     const img = new Image();
     img.src = url;
-    img.onload = () => {
-      canvas.width = canvas.offsetWidth * (window.devicePixelRatio || 1);
-      canvas.height = canvas.offsetHeight * (window.devicePixelRatio || 1);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    };
-  }, []);
+    if (img.complete && img.naturalWidth > 0) {
+      // Already in browser cache — draw immediately, zero flicker
+      drawImageCover(ctx, img);
+    } else {
+      img.onload = () => { resizeCanvas(); drawImageCover(ctx, img); };
+    }
+  }, [resizeCanvas, drawImageCover]);
 
   useEffect(() => {
     if (!hasFrames) return;
