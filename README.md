@@ -121,8 +121,6 @@ public/
     ... (all 36 transition folders)
 ```
 
-That's **42,000 JPG files** total. Roughly **~4–8 GB** depending on resolution and quality.
-
 ---
 
 ## 🚀 Performance Considerations
