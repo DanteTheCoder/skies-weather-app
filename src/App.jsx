@@ -232,7 +232,7 @@ export default function App() {
   const currentType  = currentDay ? getWeatherType(currentDay.weatherCode) : "sunny";
   const nextType     = nextDay    ? getWeatherType(nextDay.weatherCode)    : currentType;
   const transitionKey  = getTransitionKey(currentType, nextType);
-  const isTransitioning = scrollProgress > 0.01 && activeDay < weatherDays.length - 1;
+  const isTransitioning = scrollProgress > 0.001 && activeDay < weatherDays.length - 1;
 
   return (
     <div className="fixed-scene">
