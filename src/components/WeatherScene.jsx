@@ -28,32 +28,28 @@ export default function WeatherScene({
   const [videoReady, setVideoReady]                   = useState(false);
   const [hasTransitionFrames, setHasTransitionFrames] = useState(null);
 
+  const isSameType = currentType === nextType;
+
   // ── Load & play current video ────────────────────────────────────
   useEffect(() => {
     if (!currentType) return;
     const video = currentVideoRef.current;
     if (!video) return;
 
-    // Always reset — ensures back-navigation reloads correctly
     setVideoReady(false);
     video.pause();
 
     const src = `${VIDEO_BASE}/${currentType}.mp4`;
-    video.src = src;
-    video.muted      = true;
-    video.loop       = true;
+    video.src       = src;
+    video.muted     = true;
+    video.loop      = true;
     video.playsInline = true;
 
-    // canplay fires as soon as the browser has enough to start — much faster
-    // than canplaythrough which waits for full buffer
     const onCanPlay = () => {
       video.play().catch(() => {});
-      // Small rAF delay so first frame is painted before we fade in
       requestAnimationFrame(() => requestAnimationFrame(() => setVideoReady(true)));
     };
-    const onError = () => {
-      setVideoReady(false);
-    };
+    const onError = () => setVideoReady(false);
 
     video.addEventListener("canplay", onCanPlay, { once: true });
     video.addEventListener("error",   onError,   { once: true });
@@ -63,41 +59,77 @@ export default function WeatherScene({
       video.removeEventListener("canplay", onCanPlay);
       video.removeEventListener("error",   onError);
     };
-  }, [currentType]); // re-runs every time currentType changes — including backward nav
+  }, [currentType]);
 
-  // ── Preload next video silently ──────────────────────────────────
+  // ── Preload next video — only when it's a DIFFERENT type ─────────
+  // If same type, we'll mirror currentVideo's position instead
   useEffect(() => {
-    if (!nextType || nextType === currentType) return;
+    if (!nextType || isSameType) return;
+
     const video = nextVideoRef.current;
     if (!video) return;
 
     const src = `${VIDEO_BASE}/${nextType}.mp4`;
-    // Don't reload if already loaded
-    if (video.src.endsWith(nextType + ".mp4")) return;
-
-    video.src         = src;
-    video.muted       = true;
-    video.loop        = true;
-    video.playsInline = true;
-    video.preload     = "auto";
-    video.load();
-  }, [nextType, currentType]);
-
-  // Play/pause next video with transition state
-  useEffect(() => {
-    const video = nextVideoRef.current;
-    if (!video) return;
-    if (isTransitioning) {
-      video.play().catch(() => {});
-    } else {
-      video.pause();
-      video.currentTime = 0;
+    // Reset if src changed — avoids stale video from previous transition
+    if (!video.src.endsWith(`${nextType}.mp4`)) {
+      video.src       = src;
+      video.muted     = true;
+      video.loop      = true;
+      video.playsInline = true;
+      video.preload   = "auto";
+      video.load();
     }
-  }, [isTransitioning]);
+  }, [nextType, isSameType]);
 
-  // ── Transition frame sequence ────────────────────────────────────
+  // ── Sync next video state with transition ────────────────────────
   useEffect(() => {
-    if (!transitionKey) { setHasTransitionFrames(false); return; }
+    const next    = nextVideoRef.current;
+    const current = currentVideoRef.current;
+    if (!next || !current) return;
+
+    if (isTransitioning) {
+      if (isSameType) {
+        // Mirror the current video exactly — same src, same position
+        // This makes same-type "transition" completely invisible
+        const src = `${VIDEO_BASE}/${currentType}.mp4`;
+        if (!next.src.endsWith(`${currentType}.mp4`)) {
+          next.src       = src;
+          next.muted     = true;
+          next.loop      = true;
+          next.playsInline = true;
+          next.load();
+        }
+        // Sync playback position so the slide-up is seamless
+        const syncTime = () => {
+          if (Math.abs(next.currentTime - current.currentTime) > 0.1) {
+            next.currentTime = current.currentTime;
+          }
+          next.play().catch(() => {});
+        };
+        if (next.readyState >= 2) {
+          syncTime();
+        } else {
+          next.addEventListener("canplay", syncTime, { once: true });
+        }
+      } else {
+        // Different type — just start playing from wherever it loaded
+        next.play().catch(() => {});
+      }
+    } else {
+      if (!isSameType) {
+        next.pause();
+        next.currentTime = 0;
+      }
+    }
+  }, [isTransitioning, isSameType, currentType]);
+
+  // ── Frame sequence check ─────────────────────────────────────────
+  useEffect(() => {
+    // Same type never has frames
+    if (!transitionKey || isSameType) {
+      setHasTransitionFrames(false);
+      return;
+    }
     setHasTransitionFrames(null);
     let cancelled = false;
     async function check() {
@@ -111,8 +143,9 @@ export default function WeatherScene({
     }
     check();
     return () => { cancelled = true; };
-  }, [transitionKey]);
+  }, [transitionKey, isSameType]);
 
+  // ── Drive frame image ────────────────────────────────────────────
   useEffect(() => {
     if (!isTransitioning || !hasTransitionFrames || !transitionKey) return;
     const img = frameImgRef.current;
@@ -134,12 +167,23 @@ export default function WeatherScene({
     frameOpacity     = 0;
     currentOpacity   = 1;
   } else if (useFrames) {
+    // Frame sequence transition
     const fadeT      = Math.min(1, scrollProgress / 0.12);
     currentOpacity   = 1 - fadeT;
     currentTransform = "translateY(0%)";
     nextTransform    = "translateY(100%)";
     frameOpacity     = fadeT;
+  } else if (isSameType) {
+    // Same type: current video stays perfectly still — no slide, no stutter
+    // The next video is a frame-perfect mirror so even if it slides up,
+    // it looks identical to the current one
+    currentTransform = "translateY(0%)";
+    const slideUp    = (1 - eased) * 100;
+    nextTransform    = `translateY(${slideUp}%)`;
+    frameOpacity     = 0;
+    currentOpacity   = 1;
   } else {
+    // Different type, no frames — slide up reveal
     const slideUp    = (1 - eased) * 100;
     const pushUp     = eased * PARALLAX * -100;
     currentTransform = `translateY(${pushUp}%)`;
@@ -161,7 +205,7 @@ export default function WeatherScene({
   return (
     <div className="scene-bg" style={{ overflow: "hidden" }}>
 
-      {/* CSS fallback — fades out once video is ready */}
+      {/* CSS fallback — fades out once video ready */}
       <div style={{
         position: "absolute", inset: 0, zIndex: 0,
         opacity: videoReady ? 0 : 1,
@@ -183,7 +227,7 @@ export default function WeatherScene({
         <video ref={currentVideoRef} muted loop autoPlay playsInline style={videoStyle} />
       </div>
 
-      {/* Layer 2 — next video sliding up from bottom */}
+      {/* Layer 2 — next video sliding up */}
       <div style={{
         position: "absolute", inset: 0, zIndex: 2,
         transform: nextTransform,
